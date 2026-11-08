@@ -48,6 +48,14 @@ func List() ([]Process, error) {
 			ParentPID: entry.ParentProcessID,
 			Name:      windows.UTF16ToString(entry.ExeFile[:]),
 		}
+		owner, domain, sid, err := GetOwner(p.PID)
+		if err != nil {
+			p.OwnerErr = err.Error()
+		} else {
+			p.Owner = owner
+			p.Domain = domain
+			p.OwnerSID = sid
+		}
 		processes = append(processes, p)
 		err = windows.Process32Next(snapshot, &entry)
 
@@ -77,7 +85,7 @@ func GetByPID(pid uint32) (*Process, error) {
 	return nil, errors.New("process not found")
 }
 
-func getOwner(pid uint32) (owner string, domain string, sidString string, err error) {
+func GetOwner(pid uint32) (owner string, domain string, sidString string, err error) {
 	processHandle, err := windows.OpenProcess(
 		windows.PROCESS_QUERY_LIMITED_INFORMATION,
 		false,
