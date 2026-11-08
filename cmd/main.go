@@ -34,16 +34,15 @@ func main() {
 		return
 	}
 
-	fmt.Printf("%-10s %-15s %-30s\n", "PID", "PARENT PID", "PROCESS NAME")
+	fmt.Printf("%-10s %-15s %-25s %-25s\n", "PID", "PARENT PID", "PROCESS NAME", "OWNER")
 	fmt.Println("-------------------------------------------------------")
 
 	for _, p := range processes {
-		fmt.Printf("%-10d %-15d %-30s\n",
-			p.PID,
-			p.ParentPID,
-			p.Name,
-		)
+		owner := p.Domain + "\\" + p.Owner
+		if p.OwnerErr != "" {
+			owner = "Access unavailable"
+		}
+		fmt.Printf("%-10d %-15d %-25s %-25s\n", p.PID, p.ParentPID, p.Name, owner)
 	}
-
 	fmt.Printf("\nTotal processes: %d\n", len(processes))
 }
