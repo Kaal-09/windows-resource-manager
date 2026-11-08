@@ -14,6 +14,11 @@ type Process struct {
 	PID       uint32
 	ParentPID uint32
 	Name      string
+
+	Owner    string
+	Domain   string
+	OwnerSID string
+	OwnerErr string
 }
 
 func List() ([]Process, error) {
@@ -70,4 +75,48 @@ func GetByPID(pid uint32) (*Process, error) {
 	}
 
 	return nil, errors.New("process not found")
+}
+
+func getOwner(pid uint32) (owner string, domain string, sidString string, err error) {
+	processHandle, err := windows.OpenProcess(
+		windows.PROCESS_QUERY_LIMITED_INFORMATION,
+		false,
+		pid,
+	)
+	defer windows.CloseHandle(processHandle)
+	if err != nil {
+		return "", "", "", fmt.Errorf(
+			"OpenProcess failed: %w", err,
+		)
+	}
+
+	var token windows.Token
+	err = windows.OpenProcessToken(
+		processHandle,
+		windows.TOKEN_QUERY,
+		&token,
+	)
+	if err != nil {
+		return "", "", "", fmt.Errorf(
+			"OpenProcessToken failed: %w", err,
+		)
+	}
+	defer token.Close()
+
+	tokenUser, err := token.GetTokenUser()
+	if err != nil {
+		return "", "", "", fmt.Errorf(
+			"GetTokenUser failed: %w", err,
+		)
+	}
+	sid := tokenUser.User.Sid
+	sidString = sid.String()
+	owner, domain, _, err = sid.LookupAccount("")
+	if err != nil {
+		return "", domain, sidString, fmt.Errorf(
+			"LookupAccount failed: %w", err,
+		)
+	}
+
+	return owner, domain, sidString, nil
 }
