@@ -2,47 +2,60 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"resource_manager/internals/processes"
-	"strconv"
+	"runtime"
+	"time"
 )
 
 func main() {
+	previous := make(map[uint32]processes.ResourceUsage)
+	logicalCPUs := runtime.NumCPU()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	fmt.Println("Windows Resource Manager")
+	fmt.Println("Monitoring processes...")
 
-	if len(os.Args) > 1 {
-		pid, err := strconv.ParseUint(os.Args[1], 10, 32)
+	for {
+		pcs, err := processes.List()
 		if err != nil {
-			fmt.Println("Invalid PID:", err)
-			return
+			fmt.Println("Process discovery error:", err)
+			time.Sleep(time.Second)
+			continue
 		}
-		p, err := processes.GetByPID(uint32(pid))
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
+		current := make(map[uint32]processes.ResourceUsage)
+		fmt.Print("\033[H\033[2J")
+		fmt.Println("WINDOWS RESOURCE MANAGER")
+		fmt.Println("Logical CPUs:", logicalCPUs)
+		fmt.Println()
+		fmt.Printf("%-8s %-24s %10s %10s %12s %12s\n", "PID", "PROCESS", "CPU(1C)", "CPU(SYS)", "WORKING SET", "PRIVATE")
+		fmt.Println("-------------------------------------------------------------------------------")
+		for _, p := range pcs {
+			usage, err := processes.GetResourceUsage(p.PID)
+			if err != nil {
+				fmt.Printf("%-8d %-24s %10s %10s %12s %12s\n", p.PID, p.Name, "N/A", "N/A", "N/A", "N/A")
+				continue
+			}
+			current[p.PID] = usage
+			cpuOneCore := "Baseline"
+			cpuMachine := "Baseline"
+			if prev, exists := previous[p.PID]; exists {
+				oneCore, machine, valid := processes.CalculateCPU(prev, usage, logicalCPUs)
+				if valid {
+					cpuOneCore = fmt.Sprintf("%.2f%%", oneCore)
+					cpuMachine = fmt.Sprintf("%.2f%%", machine)
+				}
+			}
+			workingSetMB := float64(
+				usage.WorkingSetBytes,
+			) / (1024 * 1024)
+			privateMB := float64(
+				usage.PrivateBytes,
+			) / (1024 * 1024)
+			fmt.Printf("%-8d %-24s %10s %10s %10.2f MB %10.2f MB\n", p.PID, p.Name, cpuOneCore, cpuMachine, workingSetMB, privateMB)
 		}
-
-		fmt.Println("Process found:")
-		fmt.Printf("PID:        %d\n", p.PID)
-		fmt.Printf("Parent PID: %d\n", p.ParentPID)
-		fmt.Printf("Name:       %s\n", p.Name)
-		return
+		previous = current
+		fmt.Println()
+		fmt.Println("Press Ctrl+C to stop.")
+		<-ticker.C
 	}
-
-	processes, err := processes.List()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	fmt.Printf("%-10s %-15s %-25s %-25s\n", "PID", "PARENT PID", "PROCESS NAME", "OWNER")
-	fmt.Println("-------------------------------------------------------")
-
-	for _, p := range processes {
-		owner := p.Domain + "\\" + p.Owner
-		if p.OwnerErr != "" {
-			owner = "Access unavailable"
-		}
-		fmt.Printf("%-10d %-15d %-25s %-25s\n", p.PID, p.ParentPID, p.Name, owner)
-	}
-	fmt.Printf("\nTotal processes: %d\n", len(processes))
 }
