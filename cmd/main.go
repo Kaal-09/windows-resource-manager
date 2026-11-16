@@ -114,7 +114,8 @@ func runMonitor(ctx context.Context) int {
 	defer ticker.Stop()
 
 	for {
-		current, frame, err := renderFrame(previous, logicalCPUs)
+		discoverer := processes.NewDiscoverer()
+		current, frame, err := renderFrame(discoverer, previous, logicalCPUs)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Process discovery error:", err)
 		} else {
@@ -131,11 +132,8 @@ func runMonitor(ctx context.Context) int {
 	}
 }
 
-func renderFrame(
-	previous map[uint32]processes.ResourceUsage,
-	logicalCPUs int,
-) (map[uint32]processes.ResourceUsage, string, error) {
-	pcs, err := processes.List()
+func renderFrame(discoverer processes.ProcessDiscoverer, previous map[uint32]processes.ResourceUsage, logicalCPUs int) (map[uint32]processes.ResourceUsage, string, error) {
+	pcs, err := discoverer.List()
 	if err != nil {
 		return nil, "", err
 	}
@@ -154,16 +152,16 @@ func renderFrame(
 	for _, p := range pcs {
 		pid := strconv.FormatUint(uint64(p.PID), 10)
 
-		usage, err := processes.GetResourceUsage(p.PID)
+		usage, err := discoverer.Usage(p.PID)
 		if err != nil {
 			fmt.Fprintf(&buf, rowFmt, pid, p.Name, "N/A", "N/A", "N/A", "N/A")
 			continue
 		}
-		current[p.PID] = usage
+		current[p.PID] = *usage
 
 		cpuOneCore, cpuMachine := "Baseline", "Baseline"
 		if prev, ok := previous[p.PID]; ok {
-			if oneCore, machine, valid := processes.CalculateCPU(prev, usage, logicalCPUs); valid {
+			if oneCore, machine, valid := processes.CalculateCPU(prev, *usage, logicalCPUs); valid {
 				cpuOneCore = fmt.Sprintf("%.2f%%", oneCore)
 				cpuMachine = fmt.Sprintf("%.2f%%", machine)
 			}
