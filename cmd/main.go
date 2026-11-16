@@ -57,8 +57,8 @@ func runLimit(ctx context.Context, args []string) int {
 		fmt.Fprint(os.Stderr, usageText)
 		return 2
 	}
-
-	job, err := enforcement.ApplyCPULimit(pid, cpuLimit)
+	enforcer := enforcement.NewEnforcers()
+	_, err = enforcer.ApplyCPULimit(pid, cpuLimit)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to apply CPU limit:", err)
 		return 1
@@ -72,14 +72,14 @@ func runLimit(ctx context.Context, args []string) int {
 	fmt.Println("\nDisabling CPU restriction...")
 	exitCode := 0
 
-	if err := job.DisableCPULimit(); err != nil {
+	if _, err := enforcer.DisableCPULimit(); err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to disable CPU restriction:", err)
 		exitCode = 1
 	} else {
 		fmt.Println("CPU restriction disabled.")
 	}
 
-	if err := job.Close(); err != nil {
+	if err := enforcer.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to close Job Object:", err)
 		exitCode = 1
 	}

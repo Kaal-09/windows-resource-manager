@@ -1,4 +1,5 @@
 //go:build windows
+
 package enforcement
 
 import (
@@ -19,6 +20,15 @@ const (
 	ProcessTerminate                   = 0x0001
 )
 
+type jobQueueObjectEnforcement struct {
+	handle windows.Handle
+	pid    uint32
+}
+
+func NewEnforcers() Enforcement {
+	return &jobQueueObjectEnforcement{}
+}
+
 type cpuRateControllInformation struct {
 	ControlFlags uint32
 	CpuRate      uint32
@@ -29,60 +39,53 @@ var createJobObject = kernal32.NewProc("CreateJobObjectW")
 var setInformationJobObject = kernal32.NewProc("SetInformationJobObject")
 var assighnProcessToJobObject = kernal32.NewProc("AssignProcessToJobObject")
 
-type CPUJob struct {
-	handle windows.Handle
-	pid    uint32
-}
-
-func ApplyCPULimit(pid uint32, percent uint32) (*CPUJob, error) {
+func (j *jobQueueObjectEnforcement) ApplyCPULimit(pid uint32, percent uint32) (bool, error) {
 	if percent < 1 || percent > 100 {
-		return nil, errors.New("CPU limit must be between 1 and 100")
+		return false, errors.New("CPU limit must be between 1 and 100")
 	}
 
 	jobHandle, _, callErr := createJobObject.Call(0, 0)
 	if jobHandle == 0 {
-		return nil, fmt.Errorf("CreateJobObject failed: %w", callErr)
+		return false, fmt.Errorf("CreateJobObject failed: %w", callErr)
 	}
-	job := &CPUJob{
-		handle: windows.Handle(jobHandle),
-		pid:    pid,
-	}
+	j.handle = windows.Handle(jobHandle)
+	j.pid = pid
 	success := false
 	defer func() {
 		if !success {
-			windows.CloseHandle(job.handle)
+			windows.CloseHandle(j.handle)
 		}
 	}()
-	if err := job.UpdateCPULimit(percent); err != nil {
-		return nil, err
+	if _, err := j.UpdateCPULimit(percent); err != nil {
+		return false, err
 	}
 
 	processHandle, err := windows.OpenProcess(ProcessSetQuota|ProcessTerminate, false, pid)
 	if err != nil {
-		return nil, fmt.Errorf("OpenProcess failed for PID %d: %w", pid, err)
+		return false, fmt.Errorf("OpenProcess failed for PID %d: %w", pid, err)
 	}
 	defer windows.CloseHandle(processHandle)
 
 	// Call never returns nil, also it forces routine to be multiplexed to same os-thread haha crazy.
 	// only for the duration of .Call ofc dumy.
 	result, _, callErr := assighnProcessToJobObject.Call(
-		uintptr(job.handle),
+		uintptr(j.handle),
 		uintptr(processHandle),
 	)
 	if result == 0 {
-		return nil, fmt.Errorf("AssighnProcessToJobObject failed: %w", callErr)
+		return false, fmt.Errorf("AssighnProcessToJobObject failed: %w", callErr)
 	}
 
 	success = true
-	return job, nil
+	return true, nil
 }
 
-func (j *CPUJob) UpdateCPULimit(percent uint32) error {
+func (j *jobQueueObjectEnforcement) UpdateCPULimit(percent uint32) (bool, error) {
 	if j == nil || j.handle == 0 {
-		return errors.New("invalid Job Object handle")
+		return false, errors.New("invalid Job Object handle")
 	}
 	if percent < 1 || percent > 100 {
-		return errors.New("CPU limit must be between 1 and 100")
+		return false, errors.New("CPU limit must be between 1 and 100")
 	}
 
 	info := cpuRateControllInformation{
@@ -98,18 +101,18 @@ func (j *CPUJob) UpdateCPULimit(percent uint32) error {
 	// not required i keep just for feel.
 	runtime.KeepAlive(info)
 	if result == 0 {
-		return fmt.Errorf(
+		return false, fmt.Errorf(
 			"disabling CPU limit failed: %w",
 			callErr,
 		)
 	}
 
-	return nil
+	return true, nil
 }
 
-func (j *CPUJob) DisableCPULimit() error {
+func (j *jobQueueObjectEnforcement) DisableCPULimit() (bool, error) {
 	if j == nil || j.handle == 0 {
-		return errors.New("invalid Job Object handle")
+		return false, errors.New("invalid Job Object handle")
 	}
 	info := cpuRateControllInformation{}
 
@@ -121,13 +124,13 @@ func (j *CPUJob) DisableCPULimit() error {
 	)
 	runtime.KeepAlive(info)
 	if result == 0 {
-		return fmt.Errorf("disabling CPU limit failed: %w", callErr)
+		return false, fmt.Errorf("disabling CPU limit failed: %w", callErr)
 	}
 
-	return nil
+	return true, nil
 }
 
-func (j *CPUJob) Close() error {
+func (j *jobQueueObjectEnforcement) Close() error {
 	if j == nil || j.handle == 0 {
 		return nil
 	}
