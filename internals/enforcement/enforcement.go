@@ -8,4 +8,5 @@ type Enforcement interface {
 	ApplyCPULimit(pid uint32, percent uint32) (bool, error)
 	UpdateCPULimit(percent uint32) (bool, error)
 	DisableCPULimit() (bool, error)
+	Close() error
 }
